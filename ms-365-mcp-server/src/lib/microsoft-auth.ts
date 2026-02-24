@@ -1,39 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
 import logger from '../logger.js';
 import { getCloudEndpoints, type CloudType } from '../cloud-config.js';
-
-/**
- * Microsoft Bearer Token Auth Middleware validates that the request has a valid Microsoft access token
- * The token is passed in the Authorization header as a Bearer token
- */
-export const microsoftBearerTokenAuthMiddleware = (
-  req: Request & { microsoftAuth?: { accessToken: string; refreshToken: string } },
-  res: Response,
-  next: NextFunction
-): void => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    res.status(401).json({ error: 'Missing or invalid access token' });
-    return;
-  }
-
-  const accessToken = authHeader.substring(7);
-
-  // For Microsoft Graph, we don't validate the token here - we'll let the API calls fail if it's invalid
-  // and handle token refresh in the GraphClient
-
-  // Extract refresh token from a custom header (if provided)
-  const refreshToken = (req.headers['x-microsoft-refresh-token'] as string) || '';
-
-  // Store tokens in request for later use
-  req.microsoftAuth = {
-    accessToken,
-    refreshToken,
-  };
-
-  next();
-};
 
 /**
  * Exchange authorization code for access token

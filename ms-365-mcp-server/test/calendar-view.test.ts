@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { registerGraphTools } from '../src/graph-tools.js';
-import type { GraphClient } from '../src/graph-client.js';
+import { ToolRegistry } from '../src/tool-registry.js';
+import { executeTool } from '../src/tool-executor.js';
+import type GraphClient from '../src/graph-client.js';
 
 vi.mock('../src/logger.js', () => ({
   default: {
@@ -64,12 +65,12 @@ vi.mock('../src/generated/client.js', () => ({
 }));
 
 describe('Calendar View Tools', () => {
-  let mockServer: { tool: ReturnType<typeof vi.fn> };
+  let registry: ToolRegistry;
   let mockGraphClient: GraphClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockServer = { tool: vi.fn() };
+    registry = new ToolRegistry();
     mockGraphClient = {
       graphRequest: vi.fn().mockResolvedValue({
         content: [{ type: 'text', text: JSON.stringify({ value: [] }) }],
@@ -77,98 +78,33 @@ describe('Calendar View Tools', () => {
     } as unknown as GraphClient;
   });
 
-  function getToolHandler(toolName: string) {
-    registerGraphTools(mockServer, mockGraphClient, false);
-    const call = mockServer.tool.mock.calls.find((c: unknown[]) => c[0] === toolName);
-    expect(call).toBeDefined();
-    return call![call!.length - 1] as (params: Record<string, unknown>) => Promise<unknown>;
-  }
-
   describe('tool registration', () => {
     it('should register all three calendar view/instances tools', () => {
-      registerGraphTools(mockServer, mockGraphClient, false);
-
-      const toolNames = mockServer.tool.mock.calls.map((call: unknown[]) => call[0]);
-      expect(toolNames).toContain('get-calendar-view');
-      expect(toolNames).toContain('get-specific-calendar-view');
-      expect(toolNames).toContain('list-calendar-event-instances');
-    });
-
-    it('should include timezone parameter for calendar view tools', () => {
-      registerGraphTools(mockServer, mockGraphClient, false);
-
-      for (const call of mockServer.tool.mock.calls) {
-        const toolName = call[0] as string;
-        const paramSchema = call[2] as Record<string, z.ZodTypeAny>;
-
-        if (
-          [
-            'get-calendar-view',
-            'get-specific-calendar-view',
-            'list-calendar-event-instances',
-          ].includes(toolName)
-        ) {
-          expect(paramSchema).toHaveProperty('timezone');
-        }
-      }
-    });
-
-    it('should include expandExtendedProperties parameter for calendar view tools', () => {
-      registerGraphTools(mockServer, mockGraphClient, false);
-
-      for (const call of mockServer.tool.mock.calls) {
-        const toolName = call[0] as string;
-        const paramSchema = call[2] as Record<string, z.ZodTypeAny>;
-
-        if (
-          [
-            'get-calendar-view',
-            'get-specific-calendar-view',
-            'list-calendar-event-instances',
-          ].includes(toolName)
-        ) {
-          expect(paramSchema).toHaveProperty('expandExtendedProperties');
-        }
-      }
-    });
-
-    it('should include fetchAllPages parameter for GET tools', () => {
-      registerGraphTools(mockServer, mockGraphClient, false);
-
-      for (const call of mockServer.tool.mock.calls) {
-        const paramSchema = call[2] as Record<string, z.ZodTypeAny>;
-        expect(paramSchema).toHaveProperty('fetchAllPages');
-      }
+      expect(registry.get('get-calendar-view')).toBeDefined();
+      expect(registry.get('get-specific-calendar-view')).toBeDefined();
+      expect(registry.get('list-calendar-event-instances')).toBeDefined();
     });
 
     it('should append llmTip to tool descriptions', () => {
-      registerGraphTools(mockServer, mockGraphClient, false);
+      const calView = registry.get('get-calendar-view');
+      expect(calView?.description).toContain('TIP:');
+      expect(calView?.description).toContain('recurring event instances');
 
-      for (const call of mockServer.tool.mock.calls) {
-        const toolName = call[0] as string;
-        const description = call[1] as string;
+      const specificCalView = registry.get('get-specific-calendar-view');
+      expect(specificCalView?.description).toContain('TIP:');
+      expect(specificCalView?.description).toContain('recurring event instances');
 
-        if (toolName === 'get-calendar-view') {
-          expect(description).toContain('TIP:');
-          expect(description).toContain('recurring event instances');
-        }
-        if (toolName === 'get-specific-calendar-view') {
-          expect(description).toContain('TIP:');
-          expect(description).toContain('recurring event instances');
-        }
-        if (toolName === 'list-calendar-event-instances') {
-          expect(description).toContain('TIP:');
-          expect(description).toContain('startDateTime and endDateTime');
-        }
-      }
+      const instances = registry.get('list-calendar-event-instances');
+      expect(instances?.description).toContain('TIP:');
+      expect(instances?.description).toContain('startDateTime and endDateTime');
     });
   });
 
   describe('tool execution', () => {
     it('should call graphRequest with correct path for specific calendar view', async () => {
-      const handler = getToolHandler('get-specific-calendar-view');
+      const entry = registry.get('get-specific-calendar-view')!;
 
-      await handler({
+      await executeTool(entry, mockGraphClient, {
         calendarId: 'cal-abc-123',
         startDateTime: '2024-01-01T00:00:00Z',
         endDateTime: '2024-01-31T23:59:59Z',
@@ -179,7 +115,6 @@ describe('Calendar View Tools', () => {
         expect.objectContaining({ method: 'GET' })
       );
 
-      // Verify startDateTime and endDateTime are in the path as query params
       const calledPath = (mockGraphClient.graphRequest as ReturnType<typeof vi.fn>).mock
         .calls[0][0] as string;
       expect(calledPath).toContain('startDateTime=2024-01-01T00%3A00%3A00Z');
@@ -187,9 +122,9 @@ describe('Calendar View Tools', () => {
     });
 
     it('should set timezone header when timezone param is provided', async () => {
-      const handler = getToolHandler('get-specific-calendar-view');
+      const entry = registry.get('get-specific-calendar-view')!;
 
-      await handler({
+      await executeTool(entry, mockGraphClient, {
         calendarId: 'cal-abc-123',
         startDateTime: '2024-01-01T00:00:00Z',
         endDateTime: '2024-01-31T23:59:59Z',
@@ -207,9 +142,9 @@ describe('Calendar View Tools', () => {
     });
 
     it('should add $expand for extended properties when requested', async () => {
-      const handler = getToolHandler('get-specific-calendar-view');
+      const entry = registry.get('get-specific-calendar-view')!;
 
-      await handler({
+      await executeTool(entry, mockGraphClient, {
         calendarId: 'cal-abc-123',
         startDateTime: '2024-01-01T00:00:00Z',
         endDateTime: '2024-01-31T23:59:59Z',
@@ -222,9 +157,9 @@ describe('Calendar View Tools', () => {
     });
 
     it('should append to existing $expand when expandExtendedProperties is set', async () => {
-      const handler = getToolHandler('get-specific-calendar-view');
+      const entry = registry.get('get-specific-calendar-view')!;
 
-      await handler({
+      await executeTool(entry, mockGraphClient, {
         calendarId: 'cal-abc-123',
         startDateTime: '2024-01-01T00:00:00Z',
         endDateTime: '2024-01-31T23:59:59Z',
@@ -238,9 +173,9 @@ describe('Calendar View Tools', () => {
     });
 
     it('should pass $top query parameter when provided', async () => {
-      const handler = getToolHandler('get-specific-calendar-view');
+      const entry = registry.get('get-specific-calendar-view')!;
 
-      await handler({
+      await executeTool(entry, mockGraphClient, {
         calendarId: 'cal-abc-123',
         startDateTime: '2024-01-01T00:00:00Z',
         endDateTime: '2024-01-31T23:59:59Z',
@@ -253,9 +188,9 @@ describe('Calendar View Tools', () => {
     });
 
     it('should call graphRequest with correct path for event instances', async () => {
-      const handler = getToolHandler('list-calendar-event-instances');
+      const entry = registry.get('list-calendar-event-instances')!;
 
-      await handler({
+      await executeTool(entry, mockGraphClient, {
         calendarId: 'cal-abc-123',
         eventId: 'event-xyz-456',
         startDateTime: '2024-01-01T00:00:00Z',

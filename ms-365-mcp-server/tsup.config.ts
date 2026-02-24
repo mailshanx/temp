@@ -18,10 +18,8 @@ export default defineConfig({
   noExternal: [],
   external: [
     '@azure/msal-node',
-    '@modelcontextprotocol/sdk',
     'commander',
     'dotenv',
-    'express',
     'js-yaml',
     'keytar',
     'winston',

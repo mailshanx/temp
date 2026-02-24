@@ -1,7 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { registerGraphTools } from '../src/graph-tools.js';
-import GraphClient from '../src/graph-client.js';
+import { describe, expect, it, vi } from 'vitest';
+import { ToolRegistry } from '../src/tool-registry.js';
 
 vi.mock('../src/logger.js', () => ({
   default: {
@@ -38,119 +36,52 @@ vi.mock('../src/generated/client.js', () => ({
 }));
 
 describe('Tool Filtering', () => {
-  let server: McpServer;
-  let graphClient: GraphClient;
-  let toolSpy: ReturnType<typeof vi.spyOn>;
-
-  beforeEach(() => {
-    server = new McpServer({ name: 'test', version: '1.0.0' });
-    graphClient = {} as GraphClient;
-    toolSpy = vi.spyOn(server, 'tool').mockImplementation(() => {});
-  });
-
   it('should register all tools when no filter is provided', () => {
-    registerGraphTools(server, graphClient, false);
+    const registry = new ToolRegistry();
 
-    expect(toolSpy).toHaveBeenCalledTimes(5);
-    expect(toolSpy).toHaveBeenCalledWith(
-      'list-mail-messages',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
-    expect(toolSpy).toHaveBeenCalledWith(
-      'send-mail',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
-    expect(toolSpy).toHaveBeenCalledWith(
-      'list-calendar-events',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
-    expect(toolSpy).toHaveBeenCalledWith(
-      'list-excel-worksheets',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
-    expect(toolSpy).toHaveBeenCalledWith(
-      'get-current-user',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
+    expect(registry.size).toBe(5);
+    expect(registry.get('list-mail-messages')).toBeDefined();
+    expect(registry.get('send-mail')).toBeDefined();
+    expect(registry.get('list-calendar-events')).toBeDefined();
+    expect(registry.get('list-excel-worksheets')).toBeDefined();
+    expect(registry.get('get-current-user')).toBeDefined();
   });
 
   it('should filter tools by regex pattern - mail only', () => {
-    registerGraphTools(server, graphClient, false, 'mail');
+    const registry = new ToolRegistry({ enabledToolsPattern: 'mail' });
 
-    expect(toolSpy).toHaveBeenCalledTimes(2);
-    expect(toolSpy).toHaveBeenCalledWith(
-      'list-mail-messages',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
-    expect(toolSpy).toHaveBeenCalledWith(
-      'send-mail',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
+    expect(registry.size).toBe(2);
+    expect(registry.get('list-mail-messages')).toBeDefined();
+    expect(registry.get('send-mail')).toBeDefined();
   });
 
   it('should filter tools by regex pattern - calendar or excel', () => {
-    registerGraphTools(server, graphClient, false, 'calendar|excel');
+    const registry = new ToolRegistry({ enabledToolsPattern: 'calendar|excel' });
 
-    expect(toolSpy).toHaveBeenCalledTimes(2);
-    expect(toolSpy).toHaveBeenCalledWith(
-      'list-calendar-events',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
-    expect(toolSpy).toHaveBeenCalledWith(
-      'list-excel-worksheets',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
+    expect(registry.size).toBe(2);
+    expect(registry.get('list-calendar-events')).toBeDefined();
+    expect(registry.get('list-excel-worksheets')).toBeDefined();
   });
 
   it('should handle invalid regex patterns gracefully', () => {
-    registerGraphTools(server, graphClient, false, '[invalid regex');
+    const registry = new ToolRegistry({ enabledToolsPattern: '[invalid regex' });
 
-    expect(toolSpy).toHaveBeenCalledTimes(5);
+    // Invalid regex is ignored, all tools registered
+    expect(registry.size).toBe(5);
   });
 
   it('should combine read-only and filtering correctly', () => {
-    registerGraphTools(server, graphClient, true, 'mail');
+    const registry = new ToolRegistry({ readOnly: true, enabledToolsPattern: 'mail' });
 
-    expect(toolSpy).toHaveBeenCalledTimes(1);
-    expect(toolSpy).toHaveBeenCalledWith(
-      'list-mail-messages',
-      expect.any(String),
-      expect.any(Object),
-      expect.any(Object),
-      expect.any(Function)
-    );
+    expect(registry.size).toBe(1);
+    expect(registry.get('list-mail-messages')).toBeDefined();
+    // send-mail is POST, filtered by readOnly
+    expect(registry.get('send-mail')).toBeUndefined();
   });
 
   it('should register no tools when pattern matches nothing', () => {
-    registerGraphTools(server, graphClient, false, 'nonexistent');
+    const registry = new ToolRegistry({ enabledToolsPattern: 'nonexistent' });
 
-    expect(toolSpy).toHaveBeenCalledTimes(0);
+    expect(registry.size).toBe(0);
   });
 });
